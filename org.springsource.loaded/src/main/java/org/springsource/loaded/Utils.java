@@ -15,11 +15,7 @@
  */
 package org.springsource.loaded;
 
-import java.io.BufferedInputStream;
-import java.io.File;
-import java.io.FileOutputStream;
-import java.io.IOException;
-import java.io.InputStream;
+import java.io.*;
 import java.lang.reflect.Array;
 import java.lang.reflect.Method;
 import java.lang.reflect.Modifier;
@@ -40,6 +36,9 @@ import org.objectweb.asm.Type;
 import org.objectweb.asm.tree.AnnotationNode;
 import org.objectweb.asm.tree.FieldNode;
 import org.springsource.loaded.Utils.ReturnType.Kind;
+import org.springsource.loaded.wizzardo.pool.Holder;
+import org.springsource.loaded.wizzardo.pool.Pool;
+import org.springsource.loaded.wizzardo.pool.PoolBuilder;
 
 
 // TODO debugging tests - how is the experience?  rewriting of field accesses will really 
@@ -771,6 +770,22 @@ public class Utils implements Opcodes, Constants {
 		return Utils.loadBytesFromStream(is);
 	}
 
+
+	static private Pool<ByteArrayOutputStream> byteArrayPool = new PoolBuilder<ByteArrayOutputStream>()
+			.supplier(new PoolBuilder.Supplier<ByteArrayOutputStream>() {
+				@Override
+				public ByteArrayOutputStream get() {
+					return new ByteArrayOutputStream();
+				}
+			})
+			.resetter(new PoolBuilder.Resetter<ByteArrayOutputStream>() {
+				@Override
+				public void reset(ByteArrayOutputStream byteArrayOutputStream) {
+					byteArrayOutputStream.reset();
+				}
+			})
+			.build();
+
 	/**
 	 * Load all the byte data from an input stream.
 	 * 
@@ -778,23 +793,21 @@ public class Utils implements Opcodes, Constants {
 	 * @return a byte array containing all the data from the stream
 	 */
 	public static byte[] loadBytesFromStream(InputStream stream) {
+		Holder<ByteArrayOutputStream> holder = byteArrayPool.holder();
 		try {
 			BufferedInputStream bis = new BufferedInputStream(stream);
-			byte[] theData = new byte[10000000];
-			int dataReadSoFar = 0;
+			ByteArrayOutputStream out = holder.get();
 			byte[] buffer = new byte[1024];
-			int read = 0;
+			int read;
 			while ((read = bis.read(buffer)) != -1) {
-				System.arraycopy(buffer, 0, theData, dataReadSoFar, read);
-				dataReadSoFar += read;
+				out.write(buffer, 0, read);
 			}
 			bis.close();
-			// Resize to actual data read
-			byte[] returnData = new byte[dataReadSoFar];
-			System.arraycopy(theData, 0, returnData, 0, dataReadSoFar);
-			return returnData;
+			return out.toByteArray();
 		} catch (IOException e) {
 			throw new RuntimeException(e);
+		} finally {
+			holder.close();
 		}
 	}
 
