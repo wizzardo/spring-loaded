@@ -15,6 +15,9 @@
  */
 package org.springsource.loaded;
 
+import java.util.Map;
+import java.util.concurrent.ConcurrentHashMap;
+
 /**
  * Manages a mapping of names to numbers. The same number anywhere means the same name. This means that if some type a/b/C has been
  * loaded in two places (by different classloaders), it will have the same number in both. Only one of those a/b/C types will be
@@ -27,9 +30,10 @@ package org.springsource.loaded;
  */
 public class NameRegistry {
 
-	private static int nextTypeId = 0;
-	private static int size = 10;
-	private static String[] allocatedIds = new String[size];
+	private static volatile int nextTypeId = 0;
+	private static volatile int size = 1000;
+	private static volatile String[] allocatedIds = new String[size];
+	private static volatile Map<String, Integer> map = new ConcurrentHashMap<String, Integer>(size);
 
 	private NameRegistry() {
 	}
@@ -39,8 +43,9 @@ public class NameRegistry {
 	 */
 	public static void reset() {
 		nextTypeId = 0;
-		size = 10;
+		size = 1000;
 		allocatedIds = new String[size];
+		map = new ConcurrentHashMap<String, Integer>(size);
 	}
 
 	/**
@@ -52,12 +57,8 @@ public class NameRegistry {
 	 */
 	public static int getIdFor(String slashedClassName) {
 		assert Asserts.assertNotDotted(slashedClassName);
-		for (int i = 0; i < nextTypeId; i++) {
-			if (allocatedIds[i].equals(slashedClassName)) {
-				return i;
-			}
-		}
-		return -1;
+		Integer i = map.get(slashedClassName);
+		return i != null ? i : -1;
 	}
 
 	/**
@@ -81,13 +82,14 @@ public class NameRegistry {
 		if (id == -1) {
 			id = nextTypeId++;
 			if (nextTypeId >= allocatedIds.length) {
-				size = size + 10;
+				size = size * 3 / 2;
 				// need to make more room
 				String[] newAllocatedIds = new String[size];
 				System.arraycopy(allocatedIds, 0, newAllocatedIds, 0, allocatedIds.length);
 				allocatedIds = newAllocatedIds;
 			}
 			allocatedIds[id] = slashedClassName;
+			map.put(slashedClassName, id);
 		}
 		return id;
 	}
